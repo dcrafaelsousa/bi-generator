@@ -44,28 +44,37 @@ def generar_proyecto(necesidad=None, archivo=None):
         }
     }, indent=2))
 
-    # 4. report.json (dentro de definition/)
+    # Nombre interno de la página (ID) — distinto del displayName
+    page_name = "ReportSection"
+    page_display = "Página 1"
+
+    # 4. report.json — en el formato enhanced NO lleva "sections";
+    #    cada página tiene su propia carpeta dentro de pages/
     (report_def / "report.json").write_text(json.dumps({
         "version": "1.0",
-        "sections": [{
-            "displayName": "Página 1",
-            "displayOption": 1,
-            "filters": "[]",
-            "height": 720.00,
-            "name": "ReportSection",
-            "visualContainers": [],
-            "width": 1280.00,
-            "config": "{}"
-        }],
         "config": "{\"version\":\"5.49\",\"themeCollection\":{\"baseTheme\":{\"name\":\"CY23SU11\",\"version\":\"5.49\",\"type\":2}},\"activeSectionIndex\":0,\"defaultDrillFilterOtherVisuals\":true,\"settings\":{\"useNewFilterPaneExperience\":true,\"allowChangeFilterTypes\":true,\"useStylableVisualContainerHeader\":true,\"queryLimitOption\":6,\"exportDataMode\":1,\"useDefaultAggregateDisplayName\":true}}",
         "layoutOptimization": 0,
         "resourcePackages": []
     }, indent=2))
 
-    # 5. pages.json
+    # 5. pages.json — pageOrder usa el nombre INTERNO (ID), NO el displayName
     (pages_dir / "pages.json").write_text(json.dumps({
-        "activePageName": "Página 1",
-        "pageOrder": ["Página 1"]
+        "activePageName": page_name,
+        "pageOrder": [page_name]
+    }, indent=2))
+
+    # 5b. Carpeta y archivo de definición individual de la página
+    page_dir = pages_dir / page_name
+    page_dir.mkdir(parents=True)
+    (page_dir / "page.json").write_text(json.dumps({
+        "displayName": page_display,
+        "displayOption": 1,
+        "filters": "[]",
+        "height": 720.0,
+        "name": page_name,
+        "visualContainers": [],
+        "width": 1280.0,
+        "config": "{}"
     }, indent=2))
 
     # 6. definition.pbism (antes .pbidataset — renombrado en el esquema nuevo)

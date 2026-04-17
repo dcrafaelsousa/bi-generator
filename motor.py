@@ -1,7 +1,6 @@
 import pandas as pd
 import os
 import zipfile
-import shutil
 
 def mapear_tipo(col):
     if "Fecha" in col:
@@ -37,10 +36,13 @@ def generar_proyecto(necesidad, archivo):
     with open(tmdl_path, "w", encoding="utf-8") as f:
         f.write(tmdl)
 
-    # crear ZIP descargable
+    # crear ZIP limpio
     zip_path = "output_pbip.zip"
 
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+
+    with zipfile.ZipFile(zip_path, 'w') as z:
         for root, dirs, files in os.walk("output_pbip"):
             for file in files:
                 full_path = os.path.join(root, file)

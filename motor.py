@@ -26,7 +26,6 @@ def _tmdl_type(dtype_str: str) -> str:
 # Generador de tabla .tmdl
 # ---------------------------------------------------------------------------
 def _generar_tabla_tmdl(table_name: str, columns: list, excel_rel_path: str) -> str:
-    safe = excel_rel_path.replace("\\", "/")
     lines = [
         f"table {table_name}",
         f"\tlineageTag: {uuid.uuid4()}",
@@ -187,8 +186,8 @@ def _build_visual_container(visual_info: dict) -> dict:
 def generar_proyecto(necesidad=None, archivo=None):
     """
     Genera la estructura PBIP completa.
-    FIX: El Excel se copia DENTRO del ZIP (mismo nivel que proyecto.pbip)
-    y las queries M usan ruta relativa "datos.xlsx".
+    El Excel se copia DENTRO del ZIP (mismo nivel que proyecto.pbip)
+    y las queries M usan el parámetro RutaArchivo = "datos.xlsx".
     """
     base = Path("pbip_generado")
     name = "proyecto"
@@ -196,10 +195,7 @@ def generar_proyecto(necesidad=None, archivo=None):
     if base.exists():
         shutil.rmtree(base)
 
-    # El Excel se copia a la raíz del proyecto con nombre fijo
     excel_filename = "datos.xlsx"
-    # Power BI Desktop resuelve rutas relativas desde la carpeta del .pbip
-    excel_rel_path_m = excel_filename
 
     # ── Carpetas ─────────────────────────────────────────────────────────────
     report_root  = base / f"{name}.Report"
@@ -229,6 +225,7 @@ def generar_proyecto(necesidad=None, archivo=None):
     }, indent=2))
 
     # ── 3. definition.pbir ───────────────────────────────────────────────────
+    # FIX #1: byConnection debe ser null (no omitirse), igual que el proyecto de referencia
     (report_root / "definition.pbir").write_text(json.dumps({
         "version": "1.0",
         "datasetReference": {
@@ -327,7 +324,6 @@ def generar_proyecto(necesidad=None, archivo=None):
     }, indent=2))
 
     # ── 11. model.bim ────────────────────────────────────────────────────────
-    safe = excel_rel_path_m.replace("\\", "/")
     bim_tables = []
     for t in tables_info:
         bim_cols = [
@@ -336,7 +332,7 @@ def generar_proyecto(necesidad=None, archivo=None):
                 "dataType": c["dataType"],
                 "lineageTag": str(uuid.uuid4()),
                 "summarizeBy": "sum" if c["dataType"] in NUMERIC_TYPES else "none",
-                "sourceColumn": c["name"],   # FIX: campo que faltaba
+                "sourceColumn": c["name"],
                 "annotations": [{"name": "SummarizationSetBy", "value": "Automatic"}]
             }
             for c in t["columns"]
@@ -376,12 +372,8 @@ def generar_proyecto(necesidad=None, archivo=None):
             "expressions": [{
                 "name": "RutaArchivo",
                 "kind": "m",
-                "expression": [
-                    "let",
-                    "    Param = \"datos.xlsx\" meta [IsParameterQuery=true, Type=\"Text\", IsParameterQueryRequired=true]",
-                    "in",
-                    "    Param"
-                ],
+                # FIX #2: La expression del parámetro debe ser un string simple, no una lista
+                "expression": "let\n    Param = \"datos.xlsx\" meta [IsParameterQuery=true, Type=\"Text\", IsParameterQueryRequired=true]\nin\n    Param",
                 "lineageTag": "ruta-archivo-param"
             }],
             "annotations": [
@@ -410,14 +402,15 @@ def generar_proyecto(necesidad=None, archivo=None):
     )
 
     # ── 13. database.tmdl ────────────────────────────────────────────────────
+    # FIX #3: El nombre de la base de datos debe ser el nombre del proyecto, no el nombre genérico
     (dataset_root / "database.tmdl").write_text(
         f"database {name}\n"
         f"\tcompatibilityLevel: 1550\n"
     )
 
-    # ── 14. Una tabla .tmdl por hoja (ruta relativa) ─────────────────────────
+    # ── 14. Una tabla .tmdl por hoja ─────────────────────────────────────────
     for table in tables_info:
-        tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"], excel_rel_path_m)
+        tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"], excel_filename)
         (dataset_root / f"{table['name']}.tmdl").write_text(tmdl_content)
 
     # ── 15. ZIP ───────────────────────────────────────────────────────────────

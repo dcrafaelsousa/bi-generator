@@ -10,37 +10,32 @@ def generar_proyecto(necesidad=None, archivo=None):
     if base.exists():
         shutil.rmtree(base)
 
-    # 1. Crear estructura de carpetas
-    report_root = base / f"{name}.Report"
-    report_def = report_root / "definition"
+    # Carpetas
+    report_def = base / f"{name}.Report" / "definition"
     pages_dir = report_def / "pages"
-    dataset_root = base / f"{name}.Dataset"
-    dataset_def = dataset_root / "definition"
+    dataset_def = base / f"{name}.Dataset" / "definition"
 
-    report_root.mkdir(parents=True)
     report_def.mkdir(parents=True)
     pages_dir.mkdir(parents=True)
-    dataset_root.mkdir(parents=True)
     dataset_def.mkdir(parents=True)
 
-    # 2. Archivo raíz .pbip
+    # 1. Archivo raíz .pbip
     (base / f"{name}.pbip").write_text(json.dumps({
         "version": "1.0",
-        "artifacts": [{"report": {"path": f"{name}.Report"}}],
+        "artifacts": [
+            {"report": {"path": f"{name}.Report"}},
+            {"dataset": {"path": f"{name}.Dataset"}}
+        ],
         "settings": {"enableAutoRecovery": True}
     }, indent=2))
 
-    # 3. definition.pbir en la RAÍZ del reporte
-    (report_root / "definition.pbir").write_text(json.dumps({
+    # 2. report.json (incluye datasetReference)
+    (report_def / "report.json").write_text(json.dumps({
         "version": "1.0",
         "datasetReference": {
-            "byPath": {"path": f"../{name}.Dataset"},
+            "byPath": {"path": f"../../{name}.Dataset"},
             "byConnection": None
-        }
-    }, indent=2))
-
-    # 4. report.json dentro de definition/
-    (report_def / "report.json").write_text(json.dumps({
+        },
         "sections": [{
             "displayName": "Página 1",
             "displayOption": 1,
@@ -63,19 +58,27 @@ def generar_proyecto(necesidad=None, archivo=None):
         }]
     }, indent=2))
 
-    # 5. pages.json
+    # 3. dataset.json (en report/definition) - opcional, pero algunos validadores lo piden
+    (report_def / "dataset.json").write_text(json.dumps({
+        "version": "1.0",
+        "datasetReference": {
+            "byPath": {"path": f"../../{name}.Dataset"}
+        }
+    }, indent=2))
+
+    # 4. pages.json
     (pages_dir / "pages.json").write_text(json.dumps({
         "activePageName": "Página 1",
         "pageOrder": ["Página 1"]
     }, indent=2))
 
-    # 6. definition.pbidataset en la RAÍZ del dataset
-    (dataset_root / "definition.pbidataset").write_text(json.dumps({
+    # 5. dataset.json en dataset/definition
+    (dataset_def / "dataset.json").write_text(json.dumps({
         "version": "1.0",
         "settings": {}
     }, indent=2))
 
-    # 7. model.bim dentro de definition/
+    # 6. model.bim
     (dataset_def / "model.bim").write_text(json.dumps({
         "name": "Modelo",
         "compatibilityLevel": 1550,
@@ -86,7 +89,10 @@ def generar_proyecto(necesidad=None, archivo=None):
         }
     }, indent=2))
 
-    # 8. Empaquetar en ZIP (opcional)
+    # 7. (Opcional) Archivo .pbids para conexión vacía, si es necesario
+    # (base / f"{name}.Dataset" / f"{name}.pbids").write_text("...")
+
+    # Empaquetar
     zip_path = Path("proyecto_pbip.zip")
     if zip_path.exists():
         zip_path.unlink()

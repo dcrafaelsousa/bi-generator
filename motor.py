@@ -50,9 +50,19 @@ def generar_proyecto(necesidad, archivo):
     with open(f"{base}/Report/definition.pbir", "w") as f:
         f.write('{}')
 
-    # archivo pbip
+    # PBIP CORRECTO
     with open(f"{base}/proyecto.pbip", "w") as f:
-        f.write('{"version":"1.0","artifacts":[]}')
+        f.write('''
+{
+  "version": "1.0",
+  "artifacts": [
+    {
+      "name": "Report",
+      "path": "Report"
+    }
+  ]
+}
+''')
 
     # zip
     zip_path = "proyecto_pbip.zip"

@@ -48,7 +48,7 @@ def _generar_tabla_tmdl(table_name: str, columns: list, excel_rel_path: str) -> 
         "\t\tmode: import",
         "\t\tsource =",
         "\t\t\tlet",
-        f'\t\t\t\tSource = Excel.Workbook(File.Contents("{safe}"), null, true),',
+        f'\t\t\t\tSource = Excel.Workbook(File.Contents(RelativePath("", [{{"RelativePath":"{safe}"}}])), null, true),',
         f'\t\t\t\t{table_name}_Sheet = Source{{[Item="{table_name}",Kind="Sheet"]}}[Data],',
         f'\t\t\t\t#"Encabezados promovidos" = Table.PromoteHeaders({table_name}_Sheet, [PromoteAllScalars=true])',
         "\t\t\tin",
@@ -352,7 +352,7 @@ def generar_proyecto(necesidad=None, archivo=None):
                     "type": "m",
                     "expression": [
                         "let",
-                        f'    Source = Excel.Workbook(File.Contents("{safe}"), null, true),',
+                        f'    Source = Excel.Workbook(File.Contents(RelativePath("", [{{"RelativePath":"{safe}"}}])), null, true),',
                         f'    {t["name"]}_Sheet = Source{{[Item="{t["name"]}",Kind="Sheet"]}}[Data],',
                         f'    #"Encabezados promovidos" = Table.PromoteHeaders({t["name"]}_Sheet, [PromoteAllScalars=true])',
                         "in",
@@ -372,7 +372,11 @@ def generar_proyecto(necesidad=None, archivo=None):
             },
             "defaultPowerBIDataSourceVersion": "powerBI_V3",
             "sourceQueryCulture": "es-PE",
-            "tables": bim_tables
+            "tables": bim_tables,
+            "annotations": [
+                {"name": "PBIDesktopVersion", "value": "2.130.0.0"},
+                {"name": "__PBI_TimeIntelligenceEnabled", "value": "0"},
+            ]
         }
     }, indent=2))
 

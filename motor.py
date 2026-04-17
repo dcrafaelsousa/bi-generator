@@ -224,8 +224,59 @@ def generar_proyecto(necesidad=None, archivo=None):
             {"name": "Nombre", "dataType": "string"},
         ]}]
 
-    # ── 10. model.tmdl ──────────────────────────────────────────────────────
-    # NUEVO: reemplaza model.bim
+    # ── 10. model.bim ───────────────────────────────────────────────────────
+    # Power BI Desktop sigue requiriendo model.bim aunque también existan .tmdl.
+    # Se genera con las mismas tablas para mantener consistencia.
+    bim_tables = []
+    for t in tables_info:
+        bim_cols = [
+            {
+                "name": c["name"],
+                "dataType": c["dataType"],
+                "lineageTag": str(uuid.uuid4()),
+                "summarizeBy": "none",
+                "annotations": [{"name": "SummarizationSetBy", "value": "Automatic"}]
+            }
+            for c in t["columns"]
+        ]
+        bim_tables.append({
+            "name": t["name"],
+            "lineageTag": str(uuid.uuid4()),
+            "columns": bim_cols,
+            "partitions": [
+                {
+                    "name": t["name"],
+                    "mode": "import",
+                    "source": {
+                        "type": "m",
+                        "expression": [
+                            "let",
+                            f'    Source = Excel.Workbook(File.Contents(""), null, true),',
+                            f'    {t["name"]}_Sheet = Source{{[Item="{t["name"]}",Kind="Sheet"]}}[Data]',
+                            "in",
+                            f'    {t["name"]}_Sheet'
+                        ]
+                    }
+                }
+            ]
+        })
+
+    (dataset_root / "model.bim").write_text(json.dumps({
+        "compatibilityLevel": 1550,
+        "model": {
+            "culture": "es-ES",
+            "dataAccessOptions": {
+                "legacyRedirects": True,
+                "returnErrorValuesAsNull": True
+            },
+            "defaultPowerBIDataSourceVersion": "powerBI_V3",
+            "sourceQueryCulture": "es-PE",
+            "tables": bim_tables
+        }
+    }, indent=2))
+
+    # ── 11. model.tmdl ──────────────────────────────────────────────────────
+    # Coexiste con model.bim (Power BI los usa según la feature flag TMDL)
     table_refs = "\n".join(f"\tref table {t['name']}" for t in tables_info)
     model_tmdl = (
         "model Model\n"
@@ -238,20 +289,18 @@ def generar_proyecto(necesidad=None, archivo=None):
     )
     (dataset_root / "model.tmdl").write_text(model_tmdl)
 
-    # ── 11. database.tmdl ───────────────────────────────────────────────────
-    # NUEVO
+    # ── 12. database.tmdl ───────────────────────────────────────────────────
     (dataset_root / "database.tmdl").write_text(
         f"database {name}\n"
         f"\tcompatibilityLevel: 1550\n"
     )
 
-    # ── 12. Una tabla .tmdl por hoja ─────────────────────────────────────────
-    # NUEVO
+    # ── 13. Una tabla .tmdl por hoja ────────────────────────────────────────
     for table in tables_info:
         tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"])
         (dataset_root / f"{table['name']}.tmdl").write_text(tmdl_content)
 
-    # ── 13. Empaquetar en ZIP ────────────────────────────────────────────────
+    # ── 14. Empaquetar en ZIP ────────────────────────────────────────────────
     zip_path = Path("proyecto_pbip.zip")
     if zip_path.exists():
         zip_path.unlink()

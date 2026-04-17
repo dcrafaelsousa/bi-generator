@@ -1,12 +1,7 @@
-
 import pandas as pd
-import shutil
 import os
-
-def detectar_dominio(texto):
-    if texto and "venta" in texto.lower():
-        return "sales"
-    return "general"
+import zipfile
+import shutil
 
 def mapear_tipo(col):
     if "Fecha" in col:
@@ -24,7 +19,6 @@ def generar_tmdl(columnas):
         lines.append(f"        dataType: {tipo}")
         lines.append("")
 
-    # medidas básicas
     lines.append("    measure Total = SUM(TP21[PrecioProformaPEN])")
 
     return "\n".join(lines)
@@ -35,10 +29,21 @@ def generar_proyecto(necesidad, archivo):
 
     tmdl = generar_tmdl(columnas)
 
-    # crear estructura mínima
-    os.makedirs("output_pbip/SemanticModel/definition/tables", exist_ok=True)
+    base_path = "output_pbip/SemanticModel/definition/tables"
+    os.makedirs(base_path, exist_ok=True)
 
-    path = "output_pbip/SemanticModel/definition/tables/TP21.tmdl"
+    tmdl_path = os.path.join(base_path, "TP21.tmdl")
 
-    with open(path, "w", encoding="utf-8") as f:
+    with open(tmdl_path, "w", encoding="utf-8") as f:
         f.write(tmdl)
+
+    # crear ZIP descargable
+    zip_path = "output_pbip.zip"
+
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+        for root, dirs, files in os.walk("output_pbip"):
+            for file in files:
+                full_path = os.path.join(root, file)
+                z.write(full_path, os.path.relpath(full_path, "output_pbip"))
+
+    return zip_path

@@ -24,7 +24,7 @@ if archivo:
 
     st.markdown("**Visuales que se generarán automáticamente:**")
     for sheet in xl.sheet_names:
-        df_full = xl.parse(sheet, nrows=0)
+        df_full = xl.parse(sheet, nrows=100)
         numerics  = [c for c in df_full.columns if pd.api.types.is_numeric_dtype(df_full[c].dtype) or str(df_full[c].dtype) in ("int64","float64")]
         dates     = [c for c in df_full.columns if "datetime" in str(df_full[c].dtype)]
         cats      = [c for c in df_full.columns if df_full[c].dtype == object]

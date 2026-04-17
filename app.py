@@ -1,4 +1,3 @@
-
 import streamlit as st
 from motor import generar_proyecto
 
@@ -12,8 +11,16 @@ if st.button("Generar"):
         with open("input.xlsx", "wb") as f:
             f.write(archivo.getbuffer())
 
-        generar_proyecto(necesidad, "input.xlsx")
+        zip_path = generar_proyecto(necesidad, "input.xlsx")
 
-        st.success("Proyecto generado en carpeta output_pbip")
+        st.success("Proyecto generado")
+
+        with open(zip_path, "rb") as f:
+            st.download_button(
+                label="Descargar proyecto BI",
+                data=f,
+                file_name="proyecto_pbip.zip",
+                mime="application/zip"
+            )
     else:
         st.error("Sube un archivo primero")

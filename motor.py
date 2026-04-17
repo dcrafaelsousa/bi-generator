@@ -9,28 +9,22 @@ def generar_proyecto(necesidad, archivo):
     base = "pbip_generado"
     name = "proyecto"
 
+    # limpiar
     if os.path.exists(base):
         shutil.rmtree(base)
 
-    # =========================
-    # ESTRUCTURA
-    # =========================
+    # estructura moderna
     os.makedirs(f"{base}/{name}.Report/definition/pages", exist_ok=True)
-    os.makedirs(f"{base}/{name}.SemanticModel/tables", exist_ok=True)
+    os.makedirs(f"{base}/{name}.SemanticModel/definition/tables", exist_ok=True)
 
     # =========================
-    # PBIP
+    # PBIP (MODERNO - SIN artifacts)
     # =========================
     with open(f"{base}/{name}.pbip", "w") as f:
         json.dump({
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/pbip/pbipProperties/1.0.0/schema.json",
             "version": "1.0",
-            "artifacts": [
-                {
-                    "report": {
-                        "path": f"{name}.Report"
-                    }
-                }
-            ]
+            "settings": {}
         }, f, indent=2)
 
     # =========================
@@ -44,36 +38,38 @@ def generar_proyecto(necesidad, archivo):
 
     with open(f"{base}/{name}.Report/definition/version.json", "w") as f:
         json.dump({
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/version/1.0.0/schema.json",
             "version": "1.0"
         }, f)
 
     with open(f"{base}/{name}.Report/definition/pages/pages.json", "w") as f:
         json.dump({
-            "activePageName": "Page1",
-            "pageOrder": ["Page1"]
+            "pageOrder": ["Page1"],
+            "activePageName": "Page1"
         }, f)
 
     with open(f"{base}/{name}.Report/definition/report.json", "w") as f:
         json.dump({
-            "name": "Report",
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/1.0.0/schema.json",
+            "themeCollection": {},
             "sections": []
         }, f)
 
     # =========================
-    # SEMANTIC MODEL
+    # SEMANTIC MODEL (TMDL)
     # =========================
     with open(f"{base}/{name}.SemanticModel/definition.pbism", "w") as f:
         json.dump({
             "version": "4.2"
         }, f)
 
-    with open(f"{base}/{name}.SemanticModel/model.tmdl", "w") as f:
+    with open(f"{base}/{name}.SemanticModel/definition/model.tmdl", "w") as f:
         f.write("model Model {}")
 
-    with open(f"{base}/{name}.SemanticModel/database.tmdl", "w") as f:
+    with open(f"{base}/{name}.SemanticModel/definition/database.tmdl", "w") as f:
         f.write("database Database {}")
 
-    with open(f"{base}/{name}.SemanticModel/tables/Tabla.tmdl", "w") as f:
+    with open(f"{base}/{name}.SemanticModel/definition/tables/Tabla.tmdl", "w") as f:
         f.write("""
 table Tabla
     column Columna1
@@ -81,7 +77,7 @@ table Tabla
 """)
 
     # =========================
-    # ZIP CORRECTO
+    # ZIP (RAÍZ CORRECTA)
     # =========================
     zip_path = "proyecto_pbip.zip"
 

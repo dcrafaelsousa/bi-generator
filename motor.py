@@ -17,13 +17,11 @@ def generar_proyecto(necesidad=None, archivo=None):
     pages_dir = report_def / "pages"
     # Dataset (SemanticModel en el esquema nuevo)
     dataset_root = base / f"{name}.SemanticModel"
-    dataset_def = dataset_root / "definition"
 
     report_root.mkdir(parents=True)
     report_def.mkdir(parents=True)
     pages_dir.mkdir(parents=True)
     dataset_root.mkdir(parents=True)
-    dataset_def.mkdir(parents=True)
 
     # 2. Archivo raíz del proyecto (.pbip)
     # CORRECCIÓN: El esquema actual solo acepta "report" como clave en artifacts.
@@ -76,8 +74,8 @@ def generar_proyecto(necesidad=None, archivo=None):
         "settings": {}
     }, indent=2))
 
-    # 7. model.bim (dentro de definition/ del SemanticModel)
-    (dataset_def / "model.bim").write_text(json.dumps({
+    # 7. model.bim (en la raíz del SemanticModel)
+    (dataset_root / "model.bim").write_text(json.dumps({
         "name": "Modelo",
         "compatibilityLevel": 1550,
         "model": {

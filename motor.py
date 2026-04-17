@@ -2,26 +2,6 @@ import pandas as pd
 import os
 import zipfile
 
-def mapear_tipo(col):
-    if "Fecha" in col:
-        return "dateTime"
-    if "Precio" in col or "Area" in col:
-        return "double"
-    return "string"
-
-def generar_tmdl(columnas):
-    lines = ["createOrReplace", "", "table TP21"]
-
-    for col in columnas:
-        tipo = mapear_tipo(col)
-        lines.append(f"    column {col}")
-        lines.append(f"        dataType: {tipo}")
-        lines.append("")
-
-    lines.append("    measure Total = SUM(TP21[PrecioProformaPEN])")
-
-    return "\n".join(lines)
-
 def generar_proyecto(necesidad, archivo):
 
     df = pd.read_excel(archivo)
@@ -29,28 +9,27 @@ def generar_proyecto(necesidad, archivo):
 
     base = "pbip_project"
 
-    # estructura
+    # crear estructura
     os.makedirs(f"{base}/SemanticModel/definition/tables", exist_ok=True)
     os.makedirs(f"{base}/Report", exist_ok=True)
 
-    # TMDL tabla
-    tmdl = generar_tmdl(columnas)
+    # tabla TMDL básica
     with open(f"{base}/SemanticModel/definition/tables/TP21.tmdl", "w") as f:
-        f.write(tmdl)
+        f.write("table TP21 {}")
 
-    # model.tmdl mínimo
+    # modelo
     with open(f"{base}/SemanticModel/definition/model.tmdl", "w") as f:
         f.write("model Model {}")
 
-    # definition.pbism
+    # pbism
     with open(f"{base}/SemanticModel/definition.pbism", "w") as f:
         f.write('{"version":"1.0"}')
 
-    # report mínimo
+    # report
     with open(f"{base}/Report/definition.pbir", "w") as f:
         f.write('{}')
 
-    # PBIP CORRECTO
+    # 🔥 PBIP CORRECTO REAL
     with open(f"{base}/proyecto.pbip", "w") as f:
         f.write('''
 {
@@ -58,7 +37,13 @@ def generar_proyecto(necesidad, archivo):
   "artifacts": [
     {
       "name": "Report",
-      "path": "Report"
+      "path": "Report",
+      "type": "report"
+    },
+    {
+      "name": "SemanticModel",
+      "path": "SemanticModel",
+      "type": "semanticModel"
     }
   ]
 }

@@ -2,75 +2,79 @@ import os
 import shutil
 import zipfile
 import json
+from pathlib import Path
 
-def generar_proyecto(necesidad, archivo):
-
-    base = "pbip_generado"
+def generar_proyecto(necesidad=None, archivo=None):
+    base = Path("pbip_generado")
     name = "proyecto"
 
-    if os.path.exists(base):
+    if base.exists():
         shutil.rmtree(base)
 
-    os.makedirs(f"{base}/{name}.Report")
-    os.makedirs(f"{base}/{name}.Dataset")
+    # Crear carpetas según estructura PBIP correcta
+    report_def = base / f"{name}.Report" / "definition"
+    pages_dir = report_def / "pages"
+    dataset_def = base / f"{name}.Dataset" / "definition"
 
-    # =========================
-    # PBIP (FORMATO QUE TU POWER BI EXIGE)
-    # =========================
-    with open(f"{base}/{name}.pbip", "w") as f:
-        json.dump({
-            "version": "1.0",
-            "artifacts": [
-                {
-                    "report": {
-                        "path": f"{name}.Report"
-                    }
-                }
-            ]
-        }, f, indent=2)
+    report_def.mkdir(parents=True)
+    pages_dir.mkdir(parents=True)
+    dataset_def.mkdir(parents=True)
 
-    # =========================
-    # REPORT
-    # =========================
-    with open(f"{base}/{name}.Report/definition.pbir", "w") as f:
-        json.dump({
-            "version": "4.0",
-            "datasetReference": {
-                "byPath": {
-                    "path": f"../{name}.Dataset"
-                }
-            }
-        }, f, indent=2)
+    # 1. Archivo raíz .pbip
+    (base / f"{name}.pbip").write_text(json.dumps({
+        "version": "1.0",
+        "artifacts": [{"report": {"path": f"{name}.Report"}}]
+    }, indent=2))
 
-    with open(f"{base}/{name}.Report/report.json", "w") as f:
-        json.dump({
-            "sections": []
-        }, f, indent=2)
+    # 2. definition.pbir dentro de definition/
+    (report_def / "definition.pbir").write_text(json.dumps({
+        "version": "4.0",
+        "datasetReference": {"byPath": {"path": f"../../{name}.Dataset"}}
+    }, indent=2))
 
-    # =========================
-    # DATASET
-    # =========================
-    with open(f"{base}/{name}.Dataset/definition.pbidataset", "w") as f:
-        json.dump({
-            "version": "1.0",
-            "model": {
-                "tables": []
-            }
-        }, f, indent=2)
+    # 3. report.json completo
+    (report_def / "report.json").write_text(json.dumps({
+        "sections": [],
+        "config": {},
+        "layoutOptimization": 0,
+        "resourcePackages": []
+    }, indent=2))
 
-    # =========================
-    # ZIP CORRECTO
-    # =========================
-    zip_path = "proyecto_pbip.zip"
+    # 4. pages.json con objeto, no array
+    (pages_dir / "pages.json").write_text(json.dumps({
+        "activePageName": "Page1",
+        "pageOrder": ["Page1"]
+    }, indent=2))
 
-    if os.path.exists(zip_path):
-        os.remove(zip_path)
+    # 5. definition.pbidataset
+    (dataset_def / "definition.pbidataset").write_text(json.dumps({
+        "version": "1.0",
+        "model": {"tables": []}
+    }, indent=2))
+
+    # 6. model.bim mínimo
+    (dataset_def / "model.bim").write_text(json.dumps({
+        "name": "Model",
+        "compatibilityLevel": 1520,
+        "model": {
+            "culture": "es-ES",
+            "dataSources": [],
+            "tables": [],
+            "relationships": []
+        }
+    }, indent=2))
+
+    # Crear zip
+    zip_path = Path("proyecto_pbip.zip")
+    if zip_path.exists():
+        zip_path.unlink()
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, dirs, files in os.walk(base):
-            for file in files:
-                full = os.path.join(root, file)
-                arc = os.path.relpath(full, base)
-                z.write(full, arc)
+        for file in base.rglob("*"):
+            if file.is_file():
+                z.write(file, file.relative_to(base))
 
-    return zip_path
+    # Limpieza opcional
+    # shutil.rmtree(base)
+
+    return str(zip_path)

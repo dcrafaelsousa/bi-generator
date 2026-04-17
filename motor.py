@@ -1,74 +1,37 @@
+import pandas as pd
 import os
-import shutil
 import zipfile
-import json
 
 def generar_proyecto(necesidad, archivo):
-    output = "pbip_generado"
-    project_name = "proyecto"
 
-    if os.path.exists(output):
-        shutil.rmtree(output)
-    os.makedirs(output)
+    df = pd.read_excel(archivo)
 
-    # archivo pbip
-    pbip_content = {
-        "version": "1.0",
-        "artifacts": [
-            {
-                "report": {
-                    "path": f"{project_name}.Report"
-                }
-            }
-        ]
-    }
+    # limpieza básica
+    df_clean = df.copy()
 
-    with open(os.path.join(output, f"{project_name}.pbip"), "w") as f:
-        json.dump(pbip_content, f, indent=2)
+    # guardar archivo limpio
+    output_excel = "modelo_limpio.xlsx"
+    df_clean.to_excel(output_excel, index=False)
 
-    # carpeta Report
-    report_dir = os.path.join(output, f"{project_name}.Report")
-    os.makedirs(report_dir)
+    # generar archivo de métricas sugeridas
+    medidas = [
+        "Total Ventas = SUM(Tabla[PrecioProformaPEN])",
+        "Promedio Precio = AVERAGE(Tabla[PrecioProformaPEN])",
+        "Conteo = COUNTROWS(Tabla)"
+    ]
 
-    with open(os.path.join(report_dir, "definition.pbir"), "w") as f:
-        json.dump({
-            "version": "4.0",
-            "datasetReference": {
-                "byPath": {
-                    "path": f"../{project_name}.Dataset"
-                }
-            }
-        }, f, indent=2)
+    with open("medidas.txt", "w") as f:
+        for m in medidas:
+            f.write(m + "\n")
 
-    with open(os.path.join(report_dir, "report.json"), "w") as f:
-        json.dump({
-            "id": "00000000-0000-0000-0000-000000000001",
-            "sections": []
-        }, f, indent=2)
-
-    # carpeta Dataset
-    dataset_dir = os.path.join(output, f"{project_name}.Dataset")
-    os.makedirs(dataset_dir)
-
-    with open(os.path.join(dataset_dir, "definition.pbidataset"), "w") as f:
-        json.dump({
-            "version": "1.0",
-            "model": {
-                "tables": []
-            }
-        }, f, indent=2)
-
-    # zip correcto
-    zip_path = "proyecto_pbip.zip"
+    # empaquetar todo
+    zip_path = "proyecto_bi.zip"
 
     if os.path.exists(zip_path):
         os.remove(zip_path)
 
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
-        for root, dirs, files in os.walk(output):
-            for file in files:
-                full = os.path.join(root, file)
-                arcname = os.path.relpath(full, output)
-                z.write(full, arcname)
+    with zipfile.ZipFile(zip_path, 'w') as z:
+        z.write(output_excel)
+        z.write("medidas.txt")
 
     return zip_path

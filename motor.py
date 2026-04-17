@@ -25,8 +25,8 @@ def _tmdl_type(dtype_str: str) -> str:
 # ---------------------------------------------------------------------------
 # Generador de tabla .tmdl
 # ---------------------------------------------------------------------------
-def _generar_tabla_tmdl(table_name: str, columns: list, excel_abs_path: str) -> str:
-    safe = excel_abs_path.replace("\\", "\\\\")
+def _generar_tabla_tmdl(table_name: str, columns: list, excel_rel_path: str) -> str:
+    safe = excel_rel_path.replace("\\", "/")
     lines = [
         f"table {table_name}",
         f"\tlineageTag: {uuid.uuid4()}",
@@ -62,13 +62,6 @@ def _generar_tabla_tmdl(table_name: str, columns: list, excel_abs_path: str) -> 
 # Generador de visuales automáticos
 # ---------------------------------------------------------------------------
 def _inferir_visuales(tables_info: list) -> list:
-    """
-    Por cada tabla, genera hasta 3 visuales según los tipos de columnas:
-    - Si hay columnas numéricas + una categórica → gráfico de barras
-    - Si hay columnas de fecha + numérica → gráfico de líneas
-    - Siempre → tabla con todas las columnas
-    Devuelve lista de dicts con info de visual para incrustar en page.json
-    """
     visuals = []
     x_offset = 20
     y_offset = 20
@@ -76,15 +69,14 @@ def _inferir_visuales(tables_info: list) -> list:
 
     for table in tables_info:
         cols = table["columns"]
-        numerics  = [c for c in cols if c["dataType"] in NUMERIC_TYPES]
+        numerics   = [c for c in cols if c["dataType"] in NUMERIC_TYPES]
         categorics = [c for c in cols if c["dataType"] == "string"]
         dates      = [c for c in cols if c["dataType"] == "dateTime"]
 
-        # ── Visual 1: Tabla completa ──────────────────────────────────────
         table_cols_config = [
             {"Column": {"Expression": {"SourceRef": {"Entity": table["name"]}},
                         "Property": c["name"]}}
-            for c in cols[:8]   # máx 8 columnas en la tabla visual
+            for c in cols[:8]
         ]
         visuals.append({
             "type": "tableEx",
@@ -94,7 +86,6 @@ def _inferir_visuales(tables_info: list) -> list:
         })
         y_offset += h + 20
 
-        # ── Visual 2: Barras (categórica × numérica) ──────────────────────
         if categorics and numerics:
             visuals.append({
                 "type": "barChart",
@@ -108,7 +99,6 @@ def _inferir_visuales(tables_info: list) -> list:
                 },
             })
 
-        # ── Visual 3: Líneas (fecha × numérica) ───────────────────────────
         if dates and numerics:
             visuals.append({
                 "type": "lineChart",
@@ -128,12 +118,10 @@ def _inferir_visuales(tables_info: list) -> list:
 
 
 def _build_visual_container(visual_info: dict) -> dict:
-    """Convierte un visual_info en el formato visualContainer de page.json"""
     vtype = visual_info["type"]
     x, y = visual_info["x"], visual_info["y"]
     width, height = visual_info["width"], visual_info["height"]
 
-    # Configuración interna del visual (JSON embebido como string)
     visual_config = {
         "name": str(uuid.uuid4()).replace("-", "")[:20],
         "visualType": vtype,
@@ -146,8 +134,6 @@ def _build_visual_container(visual_info: dict) -> dict:
     }
 
     data_roles = visual_info.get("dataRoles", {})
-
-    # Armar Select y projections según roles
     select_items = []
     projections = {}
 
@@ -176,7 +162,7 @@ def _build_visual_container(visual_info: dict) -> dict:
                                 "Property": prop
                             }
                         },
-                        "Function": 0  # Sum
+                        "Function": 0
                     },
                     "Name": qname
                 })
@@ -200,9 +186,9 @@ def _build_visual_container(visual_info: dict) -> dict:
 # ---------------------------------------------------------------------------
 def generar_proyecto(necesidad=None, archivo=None):
     """
-    Genera la estructura PBIP completa con fuente de datos real y visuales automáticos.
-
-    archivo: ruta absoluta o relativa al .xlsx del usuario
+    Genera la estructura PBIP completa.
+    FIX: El Excel se copia DENTRO del ZIP (mismo nivel que proyecto.pbip)
+    y las queries M usan ruta relativa "datos.xlsx".
     """
     base = Path("pbip_generado")
     name = "proyecto"
@@ -210,8 +196,10 @@ def generar_proyecto(necesidad=None, archivo=None):
     if base.exists():
         shutil.rmtree(base)
 
-    # Resolver ruta absoluta del Excel (se incrusta en las queries M)
-    excel_abs = str(Path(archivo).resolve()) if archivo else ""
+    # El Excel se copia a la raíz del proyecto con nombre fijo
+    excel_filename = "datos.xlsx"
+    # Power BI Desktop resuelve rutas relativas desde la carpeta del .pbip
+    excel_rel_path_m = excel_filename
 
     # ── Carpetas ─────────────────────────────────────────────────────────────
     report_root  = base / f"{name}.Report"
@@ -221,6 +209,10 @@ def generar_proyecto(necesidad=None, archivo=None):
 
     for d in [report_root, report_def, pages_dir, dataset_root]:
         d.mkdir(parents=True, exist_ok=True)
+
+    # Copiar Excel al proyecto
+    if archivo:
+        shutil.copy2(archivo, base / excel_filename)
 
     # ── 1. proyecto.pbip ─────────────────────────────────────────────────────
     (base / f"{name}.pbip").write_text(json.dumps({
@@ -295,11 +287,11 @@ def generar_proyecto(necesidad=None, archivo=None):
             {"name": "Nombre", "dataType": "string"},
         ], "df_sample": None}]
 
-    # ── 7. Inferir y generar visuales automáticos ────────────────────────────
+    # ── 7. Inferir y generar visuales ────────────────────────────────────────
     visuals_info = _inferir_visuales(tables_info)
     visual_containers = [_build_visual_container(v) for v in visuals_info]
 
-    # ── 8. pages.json + page.json con visuales ───────────────────────────────
+    # ── 8. pages.json + page.json ────────────────────────────────────────────
     page_name    = "ReportSection"
     page_display = "Página 1"
 
@@ -334,8 +326,8 @@ def generar_proyecto(necesidad=None, archivo=None):
         "settings": {}
     }, indent=2))
 
-    # ── 11. model.bim (requerido por Power BI Desktop) ───────────────────────
-    safe = excel_abs.replace("\\", "\\\\")
+    # ── 11. model.bim ────────────────────────────────────────────────────────
+    safe = excel_rel_path_m.replace("\\", "/")
     bim_tables = []
     for t in tables_info:
         bim_cols = [
@@ -344,7 +336,7 @@ def generar_proyecto(necesidad=None, archivo=None):
                 "dataType": c["dataType"],
                 "lineageTag": str(uuid.uuid4()),
                 "summarizeBy": "sum" if c["dataType"] in NUMERIC_TYPES else "none",
-                "sourceColumn": c["name"],
+                "sourceColumn": c["name"],   # FIX: campo que faltaba
                 "annotations": [{"name": "SummarizationSetBy", "value": "Automatic"}]
             }
             for c in t["columns"]
@@ -402,9 +394,9 @@ def generar_proyecto(necesidad=None, archivo=None):
         f"\tcompatibilityLevel: 1550\n"
     )
 
-    # ── 14. Una tabla .tmdl por hoja ─────────────────────────────────────────
+    # ── 14. Una tabla .tmdl por hoja (ruta relativa) ─────────────────────────
     for table in tables_info:
-        tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"], excel_abs)
+        tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"], excel_rel_path_m)
         (dataset_root / f"{table['name']}.tmdl").write_text(tmdl_content)
 
     # ── 15. ZIP ───────────────────────────────────────────────────────────────

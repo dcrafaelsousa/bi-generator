@@ -15,8 +15,8 @@ def generar_proyecto(necesidad=None, archivo=None):
     report_root = base / f"{name}.Report"
     report_def = report_root / "definition"
     pages_dir = report_def / "pages"
-    # Dataset
-    dataset_root = base / f"{name}.Dataset"
+    # Dataset (SemanticModel en el esquema nuevo)
+    dataset_root = base / f"{name}.SemanticModel"
     dataset_def = dataset_root / "definition"
 
     report_root.mkdir(parents=True)
@@ -26,21 +26,22 @@ def generar_proyecto(necesidad=None, archivo=None):
     dataset_def.mkdir(parents=True)
 
     # 2. Archivo raíz del proyecto (.pbip)
+    # CORRECCIÓN: El esquema actual solo acepta "report" como clave en artifacts.
+    # El SemanticModel ya no se declara aquí; se referencia desde definition.pbir.
     (base / f"{name}.pbip").write_text(json.dumps({
         "version": "1.0",
         "artifacts": [
-            {"report": {"path": f"{name}.Report"}},
-            {"dataset": {"path": f"{name}.Dataset"}}
+            {"report": {"path": f"{name}.Report"}}
         ],
         "settings": {"enableAutoRecovery": True}
     }, indent=2))
 
-    # 3. definition.pbir (en la raíz del reporte) - EL ARCHIVO CLAVE
-    # Contenido según esquema actual: debe incluir "datasetReference" y "version"
+    # 3. definition.pbir (en la raíz del reporte)
+    # Referencia al SemanticModel con la carpeta renombrada
     (report_root / "definition.pbir").write_text(json.dumps({
         "version": "1.0",
         "datasetReference": {
-            "byPath": {"path": f"../{name}.Dataset"},
+            "byPath": {"path": f"../{name}.SemanticModel"},
             "byConnection": None
         }
     }, indent=2))
@@ -69,13 +70,13 @@ def generar_proyecto(necesidad=None, archivo=None):
         "pageOrder": ["Página 1"]
     }, indent=2))
 
-    # 6. definition.pbidataset (en la raíz del dataset)
-    (dataset_root / "definition.pbidataset").write_text(json.dumps({
+    # 6. definition.pbism (antes .pbidataset — renombrado en el esquema nuevo)
+    (dataset_root / "definition.pbism").write_text(json.dumps({
         "version": "1.0",
         "settings": {}
     }, indent=2))
 
-    # 7. model.bim (dentro de definition/ del dataset)
+    # 7. model.bim (dentro de definition/ del SemanticModel)
     (dataset_def / "model.bim").write_text(json.dumps({
         "name": "Modelo",
         "compatibilityLevel": 1550,
@@ -86,7 +87,7 @@ def generar_proyecto(necesidad=None, archivo=None):
         }
     }, indent=2))
 
-    # 8. Crear ZIP (opcional)
+    # 8. Crear ZIP
     zip_path = Path("proyecto_pbip.zip")
     if zip_path.exists():
         zip_path.unlink()

@@ -2,57 +2,106 @@ import os
 import shutil
 import zipfile
 import json
+import uuid
 
 def generar_proyecto(necesidad, archivo):
 
     base = "pbip_generado"
-    name = "proyecto"
+    name = "Store Sales"
 
     if os.path.exists(base):
         shutil.rmtree(base)
 
-    os.makedirs(f"{base}/{name}.Report")
-    os.makedirs(f"{base}/{name}.Dataset")
+    # =========================
+    # ESTRUCTURA COMPLETA
+    # =========================
+    os.makedirs(f"{base}/{name}.Report/definition/pages", exist_ok=True)
+    os.makedirs(f"{base}/{name}.SemanticModel/definition/tables", exist_ok=True)
 
-    # PBIP (FORMATO QUE TU POWER BI ESPERA)
+    # =========================
+    # PBIP (MODERNO + REFERENCIA)
+    # =========================
     with open(f"{base}/{name}.pbip", "w") as f:
         json.dump({
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/pbip/pbipProperties/1.0.0/schema.json",
             "version": "1.0",
-            "artifacts": [
-                {
-                    "report": {
-                        "path": f"{name}.Report"
-                    }
-                }
-            ]
+            "settings": {},
+            "references": {
+                "report": f"{name}.Report",
+                "semanticModel": f"{name}.SemanticModel"
+            }
         }, f, indent=2)
 
+    # =========================
     # REPORT
-    with open(f"{base}/{name}.Report/definition.pbir", "w") as f:
+    # =========================
+    report_id = str(uuid.uuid4())
+
+    with open(f"{base}/{name}.Report/.platform", "w") as f:
+        json.dump({
+            "logicalId": report_id,
+            "type": "Report"
+        }, f)
+
+    with open(f"{base}/{name}.Report/definition/definition.pbir", "w") as f:
         json.dump({
             "version": "4.0",
             "datasetReference": {
                 "byPath": {
-                    "path": f"../{name}.Dataset"
+                    "path": f"../{name}.SemanticModel"
                 }
             }
         }, f, indent=2)
 
-    with open(f"{base}/{name}.Report/report.json", "w") as f:
+    with open(f"{base}/{name}.Report/definition/version.json", "w") as f:
         json.dump({
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/version/1.0.0/schema.json",
+            "version": "1.0"
+        }, f, indent=2)
+
+    with open(f"{base}/{name}.Report/definition/pages/pages.json", "w") as f:
+        json.dump({
+            "activePageName": "Page1",
+            "pageOrder": ["Page1"]
+        }, f, indent=2)
+
+    with open(f"{base}/{name}.Report/definition/report.json", "w") as f:
+        json.dump({
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/1.0.0/schema.json",
+            "id": report_id,
+            "themeCollection": {},
             "sections": []
         }, f, indent=2)
 
-    # DATASET (NO SemanticModel)
-    with open(f"{base}/{name}.Dataset/definition.pbidataset", "w") as f:
+    # =========================
+    # SEMANTIC MODEL
+    # =========================
+    with open(f"{base}/{name}.SemanticModel/definition.pbism", "w") as f:
         json.dump({
-            "version": "1.0",
-            "model": {
-                "tables": []
-            }
+            "version": "4.2"
         }, f, indent=2)
 
-    # ZIP correcto
+    with open(f"{base}/{name}.SemanticModel/definition/model.tmdl", "w") as f:
+        f.write("""
+model Model
+    culture: "en-US"
+""")
+
+    with open(f"{base}/{name}.SemanticModel/definition/database.tmdl", "w") as f:
+        f.write("""
+database Database
+""")
+
+    with open(f"{base}/{name}.SemanticModel/definition/tables/Tabla.tmdl", "w") as f:
+        f.write("""
+table Tabla
+    column Columna1
+        dataType: string
+""")
+
+    # =========================
+    # ZIP CORRECTO
+    # =========================
     zip_path = "proyecto_pbip.zip"
 
     if os.path.exists(zip_path):

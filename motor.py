@@ -10,16 +10,22 @@ def generar_proyecto(necesidad=None, archivo=None):
     if base.exists():
         shutil.rmtree(base)
 
-    # Carpetas
-    report_def = base / f"{name}.Report" / "definition"
+    # 1. Crear carpetas según la estructura PBIP estándar
+    # Reporte
+    report_root = base / f"{name}.Report"
+    report_def = report_root / "definition"
     pages_dir = report_def / "pages"
-    dataset_def = base / f"{name}.Dataset" / "definition"
+    # Dataset
+    dataset_root = base / f"{name}.Dataset"
+    dataset_def = dataset_root / "definition"
 
+    report_root.mkdir(parents=True)
     report_def.mkdir(parents=True)
     pages_dir.mkdir(parents=True)
+    dataset_root.mkdir(parents=True)
     dataset_def.mkdir(parents=True)
 
-    # 1. Archivo raíz .pbip
+    # 2. Archivo raíz del proyecto (.pbip)
     (base / f"{name}.pbip").write_text(json.dumps({
         "version": "1.0",
         "artifacts": [
@@ -29,13 +35,19 @@ def generar_proyecto(necesidad=None, archivo=None):
         "settings": {"enableAutoRecovery": True}
     }, indent=2))
 
-    # 2. report.json (incluye datasetReference)
-    (report_def / "report.json").write_text(json.dumps({
+    # 3. definition.pbir (en la raíz del reporte) - EL ARCHIVO CLAVE
+    # Contenido según esquema actual: debe incluir "datasetReference" y "version"
+    (report_root / "definition.pbir").write_text(json.dumps({
         "version": "1.0",
         "datasetReference": {
-            "byPath": {"path": f"../../{name}.Dataset"},
+            "byPath": {"path": f"../{name}.Dataset"},
             "byConnection": None
-        },
+        }
+    }, indent=2))
+
+    # 4. report.json (dentro de definition/)
+    (report_def / "report.json").write_text(json.dumps({
+        "version": "1.0",
         "sections": [{
             "displayName": "Página 1",
             "displayOption": 1,
@@ -48,37 +60,22 @@ def generar_proyecto(necesidad=None, archivo=None):
         }],
         "config": "{\"version\":\"5.49\",\"themeCollection\":{\"baseTheme\":{\"name\":\"CY23SU11\",\"version\":\"5.49\",\"type\":2}},\"activeSectionIndex\":0,\"defaultDrillFilterOtherVisuals\":true,\"settings\":{\"useNewFilterPaneExperience\":true,\"allowChangeFilterTypes\":true,\"useStylableVisualContainerHeader\":true,\"queryLimitOption\":6,\"exportDataMode\":1,\"useDefaultAggregateDisplayName\":true}}",
         "layoutOptimization": 0,
-        "resourcePackages": [{
-            "resourcePackage": {
-                "disabled": False,
-                "items": [{"name": "CY23SU11", "path": "BaseThemes/CY23SU11.json", "type": 202}],
-                "name": "SharedResources",
-                "type": 2
-            }
-        }]
+        "resourcePackages": []
     }, indent=2))
 
-    # 3. dataset.json (en report/definition) - opcional, pero algunos validadores lo piden
-    (report_def / "dataset.json").write_text(json.dumps({
-        "version": "1.0",
-        "datasetReference": {
-            "byPath": {"path": f"../../{name}.Dataset"}
-        }
-    }, indent=2))
-
-    # 4. pages.json
+    # 5. pages.json
     (pages_dir / "pages.json").write_text(json.dumps({
         "activePageName": "Página 1",
         "pageOrder": ["Página 1"]
     }, indent=2))
 
-    # 5. dataset.json en dataset/definition
-    (dataset_def / "dataset.json").write_text(json.dumps({
+    # 6. definition.pbidataset (en la raíz del dataset)
+    (dataset_root / "definition.pbidataset").write_text(json.dumps({
         "version": "1.0",
         "settings": {}
     }, indent=2))
 
-    # 6. model.bim
+    # 7. model.bim (dentro de definition/ del dataset)
     (dataset_def / "model.bim").write_text(json.dumps({
         "name": "Modelo",
         "compatibilityLevel": 1550,
@@ -89,10 +86,7 @@ def generar_proyecto(necesidad=None, archivo=None):
         }
     }, indent=2))
 
-    # 7. (Opcional) Archivo .pbids para conexión vacía, si es necesario
-    # (base / f"{name}.Dataset" / f"{name}.pbids").write_text("...")
-
-    # Empaquetar
+    # 8. Crear ZIP (opcional)
     zip_path = Path("proyecto_pbip.zip")
     if zip_path.exists():
         zip_path.unlink()

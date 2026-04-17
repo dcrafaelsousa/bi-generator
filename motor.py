@@ -5,66 +5,85 @@ import json
 from pathlib import Path
 
 def generar_proyecto(necesidad=None, archivo=None):
+    # Configuración
     base = Path("pbip_generado")
     name = "proyecto"
 
+    # Limpieza inicial
     if base.exists():
         shutil.rmtree(base)
 
-    # Crear carpetas según estructura PBIP correcta
-    report_def = base / f"{name}.Report" / "definition"
-    pages_dir = report_def / "pages"
-    dataset_def = base / f"{name}.Dataset" / "definition"
+    # 1. Crear estructura de carpetas
+    # Carpetas principales
+    (base / f"{name}.Report" / "definition" / "pages").mkdir(parents=True)
+    (base / f"{name}.Dataset" / "definition").mkdir(parents=True)
 
-    report_def.mkdir(parents=True)
-    pages_dir.mkdir(parents=True)
-    dataset_def.mkdir(parents=True)
-
-    # 1. Archivo raíz .pbip
+    # 2. Archivo raíz: proyecto.pbip
     (base / f"{name}.pbip").write_text(json.dumps({
         "version": "1.0",
-        "artifacts": [{"report": {"path": f"{name}.Report"}}]
+        "artifacts": [{"report": {"path": f"{name}.Report"}}],
+        "settings": {"enableAutoRecovery": True}
     }, indent=2))
 
-    # 2. definition.pbir dentro de definition/
-    (report_def / "definition.pbir").write_text(json.dumps({
-        "version": "4.0",
-        "datasetReference": {"byPath": {"path": f"../../{name}.Dataset"}}
-    }, indent=2))
-
-    # 3. report.json completo
-    (report_def / "report.json").write_text(json.dumps({
-        "sections": [],
-        "config": {},
-        "layoutOptimization": 0,
-        "resourcePackages": []
-    }, indent=2))
-
-    # 4. pages.json con objeto, no array
-    (pages_dir / "pages.json").write_text(json.dumps({
-        "activePageName": "Page1",
-        "pageOrder": ["Page1"]
-    }, indent=2))
-
-    # 5. definition.pbidataset
-    (dataset_def / "definition.pbidataset").write_text(json.dumps({
-        "version": "1.0",
-        "model": {"tables": []}
-    }, indent=2))
-
-    # 6. model.bim mínimo
-    (dataset_def / "model.bim").write_text(json.dumps({
-        "name": "Model",
-        "compatibilityLevel": 1520,
-        "model": {
-            "culture": "es-ES",
-            "dataSources": [],
-            "tables": [],
-            "relationships": []
+    # 3. Archivos del Reporte (.Report)
+    # definition.pbir (referencia al dataset)
+    (base / f"{name}.Report" / "definition" / "definition.pbir").write_text(json.dumps({
+        "version": "1.0",  # ¡Importante: "1.0" y no "4.0"!
+        "datasetReference": {
+            "byPath": {"path": f"../../{name}.Dataset"},
+            "byConnection": None
         }
     }, indent=2))
 
-    # Crear zip
+    # report.json (con al menos una página/sección)
+    (base / f"{name}.Report" / "definition" / "report.json").write_text(json.dumps({
+        "sections": [{
+            "displayName": "Página 1",
+            "displayOption": 1,
+            "filters": "[]",
+            "height": 720.00,
+            "name": "ReportSection",
+            "visualContainers": [],
+            "width": 1280.00,
+            "config": "{}"
+        }],
+        "config": "{\"version\":\"5.49\",\"themeCollection\":{\"baseTheme\":{\"name\":\"CY23SU11\",\"version\":\"5.49\",\"type\":2}},\"activeSectionIndex\":0,\"defaultDrillFilterOtherVisuals\":true,\"settings\":{\"useNewFilterPaneExperience\":true,\"allowChangeFilterTypes\":true,\"useStylableVisualContainerHeader\":true,\"queryLimitOption\":6,\"exportDataMode\":1,\"useDefaultAggregateDisplayName\":true}}",
+        "layoutOptimization": 0,
+        "resourcePackages": [{
+            "resourcePackage": {
+                "disabled": False,
+                "items": [{"name": "CY23SU11", "path": "BaseThemes/CY23SU11.json", "type": 202}],
+                "name": "SharedResources",
+                "type": 2
+            }
+        }]
+    }, indent=2))
+
+    # pages.json (requerido aunque esté vacío)
+    (base / f"{name}.Report" / "definition" / "pages" / "pages.json").write_text(json.dumps({
+        "activePageName": "Página 1",
+        "pageOrder": ["Página 1"]
+    }, indent=2))
+
+    # 4. Archivos del Dataset (.Dataset)
+    # definition.pbidataset (configuración del dataset)
+    (base / f"{name}.Dataset" / "definition" / "definition.pbidataset").write_text(json.dumps({
+        "version": "1.0",
+        "settings": {}
+    }, indent=2))
+
+    # model.bim (modelo semántico)
+    (base / f"{name}.Dataset" / "definition" / "model.bim").write_text(json.dumps({
+        "name": "Modelo",
+        "compatibilityLevel": 1550,  # Un nivel de compatibilidad moderno
+        "model": {
+            "culture": "es-ES",
+            "defaultPowerBIDataSourceVersion": "powerBI_V3",
+            "tables": []
+        }
+    }, indent=2))
+
+    # 5. Empaquetado en ZIP
     zip_path = Path("proyecto_pbip.zip")
     if zip_path.exists():
         zip_path.unlink()
@@ -74,7 +93,9 @@ def generar_proyecto(necesidad=None, archivo=None):
             if file.is_file():
                 z.write(file, file.relative_to(base))
 
-    # Limpieza opcional
-    # shutil.rmtree(base)
-
     return str(zip_path)
+
+# Ejemplo de uso
+if __name__ == "__main__":
+    ruta_zip = generar_proyecto()
+    print(f"Proyecto generado en: {ruta_zip}")

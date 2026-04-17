@@ -2,18 +2,21 @@ import shutil
 import zipfile
 import json
 import uuid
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Tipos de datos Excel → TMDL
+# Tipos de datos Excel → TMDL / BIM
 # ---------------------------------------------------------------------------
 EXCEL_TO_TMDL_TYPE = {
-    "int64":   "int64",
-    "float64": "double",
-    "bool":    "boolean",
+    "int64":          "int64",
+    "float64":        "double",
+    "bool":           "boolean",
     "datetime64[ns]": "dateTime",
-    "object":  "string",
+    "object":         "string",
 }
+
+NUMERIC_TYPES = {"int64", "float64", "double"}
 
 def _tmdl_type(dtype_str: str) -> str:
     return EXCEL_TO_TMDL_TYPE.get(dtype_str, "string")
@@ -22,39 +25,174 @@ def _tmdl_type(dtype_str: str) -> str:
 # ---------------------------------------------------------------------------
 # Generador de tabla .tmdl
 # ---------------------------------------------------------------------------
-def _generar_tabla_tmdl(table_name: str, columns: list[dict]) -> str:
-    """
-    columns: lista de {"name": str, "dataType": str}
-    Devuelve el contenido del archivo <table_name>.tmdl
-    """
+def _generar_tabla_tmdl(table_name: str, columns: list, excel_abs_path: str) -> str:
+    safe = excel_abs_path.replace("\\", "\\\\")
     lines = [
         f"table {table_name}",
-        "\tlineageTag: " + str(uuid.uuid4()),
+        f"\tlineageTag: {uuid.uuid4()}",
         "",
     ]
     for col in columns:
         lines += [
             f"\tcolumn {col['name']}",
             f"\t\tdataType: {col['dataType']}",
-            f"\t\tlineageTag: {str(uuid.uuid4())}",
-            f"\t\tsummarizeBy: none",
+            f"\t\tlineageTag: {uuid.uuid4()}",
+            f"\t\tsummarizeBy: {'sum' if col['dataType'] in NUMERIC_TYPES else 'none'}",
             f"\t\tsourceColumn: {col['name']}",
             "",
             f"\t\tannotation SummarizationSetBy = Automatic",
             "",
         ]
     lines += [
-        "\tpartition " + table_name + " = m",
+        f"\tpartition {table_name} = m",
         "\t\tmode: import",
         "\t\tsource =",
-        '\t\t\tlet',
-        f'\t\t\t\tSource = Excel.Workbook(File.Contents(""), null, true),',
-        f'\t\t\t\t{table_name}_Sheet = Source{{[Item="{table_name}",Kind="Sheet"]}}[Data]',
-        '\t\t\tin',
-        f'\t\t\t\t{table_name}_Sheet',
+        "\t\t\tlet",
+        f'\t\t\t\tSource = Excel.Workbook(File.Contents("{safe}"), null, true),',
+        f'\t\t\t\t{table_name}_Sheet = Source{{[Item="{table_name}",Kind="Sheet"]}}[Data],',
+        f'\t\t\t\t#"Encabezados promovidos" = Table.PromoteHeaders({table_name}_Sheet, [PromoteAllScalars=true])',
+        "\t\t\tin",
+        '\t\t\t\t#"Encabezados promovidos"',
         "",
     ]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Generador de visuales automáticos
+# ---------------------------------------------------------------------------
+def _inferir_visuales(tables_info: list) -> list:
+    """
+    Por cada tabla, genera hasta 3 visuales según los tipos de columnas:
+    - Si hay columnas numéricas + una categórica → gráfico de barras
+    - Si hay columnas de fecha + numérica → gráfico de líneas
+    - Siempre → tabla con todas las columnas
+    Devuelve lista de dicts con info de visual para incrustar en page.json
+    """
+    visuals = []
+    x_offset = 20
+    y_offset = 20
+    w, h = 400, 280
+
+    for table in tables_info:
+        cols = table["columns"]
+        numerics  = [c for c in cols if c["dataType"] in NUMERIC_TYPES]
+        categorics = [c for c in cols if c["dataType"] == "string"]
+        dates      = [c for c in cols if c["dataType"] == "dateTime"]
+
+        # ── Visual 1: Tabla completa ──────────────────────────────────────
+        table_cols_config = [
+            {"Column": {"Expression": {"SourceRef": {"Entity": table["name"]}},
+                        "Property": c["name"]}}
+            for c in cols[:8]   # máx 8 columnas en la tabla visual
+        ]
+        visuals.append({
+            "type": "tableEx",
+            "x": x_offset, "y": y_offset, "width": w * 2 + 20, "height": h,
+            "table": table["name"],
+            "dataRoles": {"Values": table_cols_config},
+        })
+        y_offset += h + 20
+
+        # ── Visual 2: Barras (categórica × numérica) ──────────────────────
+        if categorics and numerics:
+            visuals.append({
+                "type": "barChart",
+                "x": x_offset, "y": y_offset, "width": w, "height": h,
+                "table": table["name"],
+                "dataRoles": {
+                    "Category": [{"Column": {"Expression": {"SourceRef": {"Entity": table["name"]}},
+                                             "Property": categorics[0]["name"]}}],
+                    "Y": [{"Measure": {"Expression": {"SourceRef": {"Entity": table["name"]}},
+                                       "Property": numerics[0]["name"]}}],
+                },
+            })
+
+        # ── Visual 3: Líneas (fecha × numérica) ───────────────────────────
+        if dates and numerics:
+            visuals.append({
+                "type": "lineChart",
+                "x": x_offset + w + 20, "y": y_offset, "width": w, "height": h,
+                "table": table["name"],
+                "dataRoles": {
+                    "Category": [{"Column": {"Expression": {"SourceRef": {"Entity": table["name"]}},
+                                             "Property": dates[0]["name"]}}],
+                    "Y": [{"Measure": {"Expression": {"SourceRef": {"Entity": table["name"]}},
+                                       "Property": numerics[0]["name"]}}],
+                },
+            })
+
+        y_offset += h + 40
+
+    return visuals
+
+
+def _build_visual_container(visual_info: dict) -> dict:
+    """Convierte un visual_info en el formato visualContainer de page.json"""
+    vtype = visual_info["type"]
+    x, y = visual_info["x"], visual_info["y"]
+    width, height = visual_info["width"], visual_info["height"]
+
+    # Configuración interna del visual (JSON embebido como string)
+    visual_config = {
+        "name": str(uuid.uuid4()).replace("-", "")[:20],
+        "visualType": vtype,
+        "projections": {},
+        "prototypeQuery": {
+            "Version": 2,
+            "From": [{"Name": "t", "Entity": visual_info["table"], "Type": 0}],
+            "Select": [],
+        }
+    }
+
+    data_roles = visual_info.get("dataRoles", {})
+
+    # Armar Select y projections según roles
+    select_items = []
+    projections = {}
+
+    for role, items in data_roles.items():
+        projections[role] = []
+        for item in items:
+            if "Column" in item:
+                prop = item["Column"]["Property"]
+                qname = f"t.{prop}"
+                select_items.append({
+                    "Column": {
+                        "Expression": {"SourceRef": {"Source": "t"}},
+                        "Property": prop
+                    },
+                    "Name": qname
+                })
+                projections[role].append({"queryRef": qname})
+            elif "Measure" in item:
+                prop = item["Measure"]["Property"]
+                qname = f"t.{prop}"
+                select_items.append({
+                    "Aggregation": {
+                        "Expression": {
+                            "Column": {
+                                "Expression": {"SourceRef": {"Source": "t"}},
+                                "Property": prop
+                            }
+                        },
+                        "Function": 0  # Sum
+                    },
+                    "Name": qname
+                })
+                projections[role].append({"queryRef": qname})
+
+    visual_config["prototypeQuery"]["Select"] = select_items
+    visual_config["projections"] = projections
+
+    return {
+        "x": x, "y": y,
+        "z": 1000,
+        "width": width, "height": height,
+        "config": json.dumps({"singleVisual": visual_config}),
+        "filters": "[]",
+        "tabOrder": 0
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -62,11 +200,9 @@ def _generar_tabla_tmdl(table_name: str, columns: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 def generar_proyecto(necesidad=None, archivo=None):
     """
-    Genera la estructura PBIP completa.
+    Genera la estructura PBIP completa con fuente de datos real y visuales automáticos.
 
-    Si se pasa `archivo` (ruta a un .xlsx), lee las hojas y crea una tabla
-    .tmdl por hoja con las columnas detectadas.
-    Si no se pasa archivo, genera el SemanticModel vacío.
+    archivo: ruta absoluta o relativa al .xlsx del usuario
     """
     base = Path("pbip_generado")
     name = "proyecto"
@@ -74,41 +210,33 @@ def generar_proyecto(necesidad=None, archivo=None):
     if base.exists():
         shutil.rmtree(base)
 
-    # ── Carpetas ────────────────────────────────────────────────────────────
-    report_root = base / f"{name}.Report"
-    report_def  = report_root / "definition"
-    pages_dir   = report_def / "pages"
+    # Resolver ruta absoluta del Excel (se incrusta en las queries M)
+    excel_abs = str(Path(archivo).resolve()) if archivo else ""
+
+    # ── Carpetas ─────────────────────────────────────────────────────────────
+    report_root  = base / f"{name}.Report"
+    report_def   = report_root / "definition"
+    pages_dir    = report_def / "pages"
     dataset_root = base / f"{name}.SemanticModel"
 
-    report_root.mkdir(parents=True)
-    report_def.mkdir(parents=True)
-    pages_dir.mkdir(parents=True)
-    dataset_root.mkdir(parents=True)
+    for d in [report_root, report_def, pages_dir, dataset_root]:
+        d.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. proyecto.pbip ────────────────────────────────────────────────────
+    # ── 1. proyecto.pbip ─────────────────────────────────────────────────────
     (base / f"{name}.pbip").write_text(json.dumps({
         "version": "1.0",
-        "artifacts": [
-            {"report": {"path": f"{name}.Report"}}
-        ],
+        "artifacts": [{"report": {"path": f"{name}.Report"}}],
         "settings": {"enableAutoRecovery": True}
     }, indent=2))
 
-    # ── 2. proyecto.Report/.platform ────────────────────────────────────────
-    # NUEVO: requerido con logicalId y type = Report
+    # ── 2. Report/.platform ──────────────────────────────────────────────────
     (report_root / ".platform").write_text(json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
-        "metadata": {
-            "type": "Report",
-            "displayName": name
-        },
-        "config": {
-            "version": "2.0",
-            "logicalId": str(uuid.uuid4())
-        }
+        "metadata": {"type": "Report", "displayName": name},
+        "config": {"version": "2.0", "logicalId": str(uuid.uuid4())}
     }, indent=2))
 
-    # ── 3. definition.pbir ──────────────────────────────────────────────────
+    # ── 3. definition.pbir ───────────────────────────────────────────────────
     (report_root / "definition.pbir").write_text(json.dumps({
         "version": "1.0",
         "datasetReference": {
@@ -117,25 +245,13 @@ def generar_proyecto(necesidad=None, archivo=None):
         }
     }, indent=2))
 
-    # ── 4. report.json ──────────────────────────────────────────────────────
+    # ── 4. report.json ───────────────────────────────────────────────────────
     (report_def / "report.json").write_text(json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/1.0.0/schema.json",
-        "themeCollection": {
-            "baseTheme": {
-                "name": "CY23SU11",
-                "version": "5.49",
-                "type": 2
-            }
-        },
+        "themeCollection": {"baseTheme": {"name": "CY23SU11", "version": "5.49", "type": 2}},
         "config": json.dumps({
             "version": "5.49",
-            "themeCollection": {
-                "baseTheme": {
-                    "name": "CY23SU11",
-                    "version": "5.49",
-                    "type": 2
-                }
-            },
+            "themeCollection": {"baseTheme": {"name": "CY23SU11", "version": "5.49", "type": 2}},
             "activeSectionIndex": 0,
             "defaultDrillFilterOtherVisuals": True,
             "settings": {
@@ -151,14 +267,39 @@ def generar_proyecto(necesidad=None, archivo=None):
         "resourcePackages": []
     }, indent=2))
 
-    # ── 5. version.json ─────────────────────────────────────────────────────
-    # NUEVO: requerido en definition/
+    # ── 5. version.json ──────────────────────────────────────────────────────
     (report_def / "version.json").write_text(json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/version/1.0.0/schema.json",
         "version": "1.0"
     }, indent=2))
 
-    # ── 6. pages/pages.json + página vacía ──────────────────────────────────
+    # ── 6. Leer Excel → tablas ───────────────────────────────────────────────
+    tables_info = []
+    if archivo:
+        try:
+            import pandas as pd
+            xl = pd.ExcelFile(archivo)
+            for sheet in xl.sheet_names:
+                df = xl.parse(sheet, nrows=5)
+                cols = [
+                    {"name": col, "dataType": _tmdl_type(str(df[col].dtype))}
+                    for col in df.columns
+                ]
+                tables_info.append({"name": sheet, "columns": cols, "df_sample": df})
+        except Exception as e:
+            print(f"[WARN] No se pudo leer el Excel: {e}")
+
+    if not tables_info:
+        tables_info = [{"name": "Tabla1", "columns": [
+            {"name": "ID",     "dataType": "int64"},
+            {"name": "Nombre", "dataType": "string"},
+        ], "df_sample": None}]
+
+    # ── 7. Inferir y generar visuales automáticos ────────────────────────────
+    visuals_info = _inferir_visuales(tables_info)
+    visual_containers = [_build_visual_container(v) for v in visuals_info]
+
+    # ── 8. pages.json + page.json con visuales ───────────────────────────────
     page_name    = "ReportSection"
     page_display = "Página 1"
 
@@ -168,65 +309,33 @@ def generar_proyecto(necesidad=None, archivo=None):
     }, indent=2))
 
     page_dir = pages_dir / page_name
-    page_dir.mkdir(parents=True)
+    page_dir.mkdir(parents=True, exist_ok=True)
     (page_dir / "page.json").write_text(json.dumps({
         "displayName": page_display,
         "displayOption": 1,
         "filters": "[]",
         "height": 720.0,
         "name": page_name,
-        "visualContainers": [],
+        "visualContainers": visual_containers,
         "width": 1280.0,
         "config": "{}"
     }, indent=2))
 
-    # ── 7. SemanticModel/.platform ──────────────────────────────────────────
+    # ── 9. SemanticModel/.platform ───────────────────────────────────────────
     (dataset_root / ".platform").write_text(json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
-        "metadata": {
-            "type": "SemanticModel",
-            "displayName": name
-        },
-        "config": {
-            "version": "2.0",
-            "logicalId": str(uuid.uuid4())
-        }
+        "metadata": {"type": "SemanticModel", "displayName": name},
+        "config": {"version": "2.0", "logicalId": str(uuid.uuid4())}
     }, indent=2))
 
-    # ── 8. definition.pbism con versión 4.2 ─────────────────────────────────
-    # CORREGIDO: ahora incluye version 4.2
+    # ── 10. definition.pbism ─────────────────────────────────────────────────
     (dataset_root / "definition.pbism").write_text(json.dumps({
         "version": "4.2",
         "settings": {}
     }, indent=2))
 
-    # ── 9. Leer Excel y generar archivos TMDL ───────────────────────────────
-    tables_info = []   # [{"name": str, "columns": [...]}]
-
-    if archivo:
-        try:
-            import pandas as pd
-            xl = pd.ExcelFile(archivo)
-            for sheet in xl.sheet_names:
-                df = xl.parse(sheet, nrows=0)   # solo encabezados
-                cols = [
-                    {"name": col, "dataType": _tmdl_type(str(df[col].dtype))}
-                    for col in df.columns
-                ]
-                tables_info.append({"name": sheet, "columns": cols})
-        except Exception as e:
-            print(f"[WARN] No se pudo leer el Excel: {e}")
-
-    # Tabla placeholder si no hay Excel
-    if not tables_info:
-        tables_info = [{"name": "Tabla1", "columns": [
-            {"name": "ID",     "dataType": "int64"},
-            {"name": "Nombre", "dataType": "string"},
-        ]}]
-
-    # ── 10. model.bim ───────────────────────────────────────────────────────
-    # Power BI Desktop sigue requiriendo model.bim aunque también existan .tmdl.
-    # Se genera con las mismas tablas para mantener consistencia.
+    # ── 11. model.bim (requerido por Power BI Desktop) ───────────────────────
+    safe = excel_abs.replace("\\", "\\\\")
     bim_tables = []
     for t in tables_info:
         bim_cols = [
@@ -234,7 +343,8 @@ def generar_proyecto(necesidad=None, archivo=None):
                 "name": c["name"],
                 "dataType": c["dataType"],
                 "lineageTag": str(uuid.uuid4()),
-                "summarizeBy": "none",
+                "summarizeBy": "sum" if c["dataType"] in NUMERIC_TYPES else "none",
+                "sourceColumn": c["name"],
                 "annotations": [{"name": "SummarizationSetBy", "value": "Automatic"}]
             }
             for c in t["columns"]
@@ -243,22 +353,21 @@ def generar_proyecto(necesidad=None, archivo=None):
             "name": t["name"],
             "lineageTag": str(uuid.uuid4()),
             "columns": bim_cols,
-            "partitions": [
-                {
-                    "name": t["name"],
-                    "mode": "import",
-                    "source": {
-                        "type": "m",
-                        "expression": [
-                            "let",
-                            f'    Source = Excel.Workbook(File.Contents(""), null, true),',
-                            f'    {t["name"]}_Sheet = Source{{[Item="{t["name"]}",Kind="Sheet"]}}[Data]',
-                            "in",
-                            f'    {t["name"]}_Sheet'
-                        ]
-                    }
+            "partitions": [{
+                "name": t["name"],
+                "mode": "import",
+                "source": {
+                    "type": "m",
+                    "expression": [
+                        "let",
+                        f'    Source = Excel.Workbook(File.Contents("{safe}"), null, true),',
+                        f'    {t["name"]}_Sheet = Source{{[Item="{t["name"]}",Kind="Sheet"]}}[Data],',
+                        f'    #"Encabezados promovidos" = Table.PromoteHeaders({t["name"]}_Sheet, [PromoteAllScalars=true])',
+                        "in",
+                        '    #"Encabezados promovidos"'
+                    ]
                 }
-            ]
+            }]
         })
 
     (dataset_root / "model.bim").write_text(json.dumps({
@@ -275,32 +384,30 @@ def generar_proyecto(necesidad=None, archivo=None):
         }
     }, indent=2))
 
-    # ── 11. model.tmdl ──────────────────────────────────────────────────────
-    # Coexiste con model.bim (Power BI los usa según la feature flag TMDL)
+    # ── 12. model.tmdl ───────────────────────────────────────────────────────
     table_refs = "\n".join(f"\tref table {t['name']}" for t in tables_info)
-    model_tmdl = (
+    (dataset_root / "model.tmdl").write_text(
         "model Model\n"
-        f"\tculture: es-ES\n"
-        f"\tdataAccessOptions\n"
-        f"\t\tlegacyRedirects: true\n"
-        f"\t\treturnErrorValuesAsNull: true\n"
-        f"\n"
+        "\tculture: es-ES\n"
+        "\tdataAccessOptions\n"
+        "\t\tlegacyRedirects: true\n"
+        "\t\treturnErrorValuesAsNull: true\n"
+        "\n"
         f"{table_refs}\n"
     )
-    (dataset_root / "model.tmdl").write_text(model_tmdl)
 
-    # ── 12. database.tmdl ───────────────────────────────────────────────────
+    # ── 13. database.tmdl ────────────────────────────────────────────────────
     (dataset_root / "database.tmdl").write_text(
         f"database {name}\n"
         f"\tcompatibilityLevel: 1550\n"
     )
 
-    # ── 13. Una tabla .tmdl por hoja ────────────────────────────────────────
+    # ── 14. Una tabla .tmdl por hoja ─────────────────────────────────────────
     for table in tables_info:
-        tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"])
+        tmdl_content = _generar_tabla_tmdl(table["name"], table["columns"], excel_abs)
         (dataset_root / f"{table['name']}.tmdl").write_text(tmdl_content)
 
-    # ── 14. Empaquetar en ZIP ────────────────────────────────────────────────
+    # ── 15. ZIP ───────────────────────────────────────────────────────────────
     zip_path = Path("proyecto_pbip.zip")
     if zip_path.exists():
         zip_path.unlink()
